@@ -5,7 +5,7 @@ A mod for bopl battle which draws lines around hitboxes. made by Jo912345.
 Before building, set up the required game references:
 
 1. Install **Bopl Battle**.
-2. Update DLL reference paths in `/home/runner/work/bopl-hitbox-visualizer/bopl-hitbox-visualizer/HitBoxVisualizerPlugin.csproj` if your game is not installed at:
+2. Update DLL reference paths in `HitBoxVisualizerPlugin.csproj` if your game is not installed at:
    - `C:\Program Files (x86)\Steam\steamapps\common\Bopl Battle\BoplBattle_Data\Managed\...`
 3. Place a publicized `Assembly-CSharp-publicized.dll` at:
    - `../__local game assemblies/Assembly-CSharp-publicized.dll` (relative to this repository root).
