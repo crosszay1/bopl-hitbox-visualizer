@@ -32,6 +32,8 @@ namespace HitBoxVisualizerPlugin
 
         public ConfigEntry<float> CONFIG_drawingThickness;
         public ConfigEntry<float> CONFIG_debugLineLifetime;
+        public ConfigEntry<bool> CONFIG_consoleOutputMode;
+        public ConfigEntry<float> CONFIG_consoleOutputIntervalSeconds;
 
         public ConfigEntry<String> CONFIG_rectColors;
         public ConfigEntry<String> CONFIG_circleColors;
@@ -43,6 +45,10 @@ namespace HitBoxVisualizerPlugin
         public static float drawingThickness = 0.5f;
         public static float debugLineLifetime = 1.5f;
         public static int circleDrawingMinAmountOfLines = 14;
+        public static bool consoleOutputMode = false;
+        public static float consoleOutputIntervalSeconds = 0.25f;
+        public float consoleOutputElapsedSeconds = 0f;
+        public Dictionary<int, string> lastPrintedRowsByInstanceId = [];
 
         public new static ManualLogSource Logger;
 
@@ -78,6 +84,18 @@ namespace HitBoxVisualizerPlugin
                 "debugLineLifetime",
                 1.5f,
                 "How many seconds should debug lines (ie non hitbox stuff like raycasts) live before being destroyed? This is purely visual."
+            );
+            CONFIG_consoleOutputMode = Config.Bind(
+                "Output Settings",
+                "consoleOutputMode",
+                false,
+                "When enabled, prints each active hitbox as `ObjectType, x, y` to the BepInEx console/log instead of drawing hitbox lines."
+            );
+            CONFIG_consoleOutputIntervalSeconds = Config.Bind(
+                "Output Settings",
+                "consoleOutputIntervalSeconds",
+                0.25f,
+                "How often (in seconds) hitbox rows are printed when console output mode is enabled."
             );
 
 
@@ -160,6 +178,8 @@ namespace HitBoxVisualizerPlugin
 
             drawingThickness = CONFIG_drawingThickness.Value;
             debugLineLifetime = CONFIG_debugLineLifetime.Value;
+            consoleOutputMode = CONFIG_consoleOutputMode.Value;
+            consoleOutputIntervalSeconds = Mathf.Max(0.05f, CONFIG_consoleOutputIntervalSeconds.Value);
         }
 
         public bool versionString_IsGreater(string v1, string v2)
@@ -257,28 +277,40 @@ namespace HitBoxVisualizerPlugin
 
         public void updateHitboxes(float deltaSeconds)
         {
-            Tuple<List<HitboxLineGroup>, List<HitboxLineGroup>> ListOflineGroupTuple = calculateHitBoxShapeComponentLines(DPhysBoxDict, DPhysCircleDict);
+            var lineGroupTuple = calculateHitBoxShapeComponentLines(DPhysBoxDict, DPhysCircleDict);
             DebugLineGroup.TickLineLifetimes(deltaSeconds);
 
             // rectangles + DebugLines
-            List<HitboxLineGroup> HitboxComponentLines_NoDistortion = ListOflineGroupTuple.Item1;
+            List<HitboxLineGroup> HitboxComponentLines_NoDistortion = lineGroupTuple.Item1;
             HitboxComponentLines_NoDistortion.Add(DebugLineGroup);
             // circles
             // circles already have very little distortion (likely due to their much shallower turns at each point)
             // and would also cost a ton of extra line holder game objects to render with 1 game object per line.
-            List<HitboxLineGroup> HitboxComponentLines = ListOflineGroupTuple.Item2;
-            
+            List<HitboxLineGroup> HitboxComponentLines = lineGroupTuple.Item2;
+
+            if (consoleOutputMode)
+            {
+                consoleOutputElapsedSeconds += deltaSeconds;
+                if (consoleOutputElapsedSeconds >= consoleOutputIntervalSeconds)
+                {
+                    consoleOutputElapsedSeconds = 0f;
+                    LogHitboxRowsToConsole(lineGroupTuple.Item3);
+                }
+                return;
+            }
+
             LineDrawing.drawLinesAsLineRendererPositions(HitboxComponentLines);
             LineDrawing.drawLinesIndividuallyWithHolderGameObjects(HitboxComponentLines_NoDistortion);
         }
 
 
-        public Tuple<List<HitboxLineGroup>, List<HitboxLineGroup>> calculateHitBoxShapeComponentLines(Dictionary<int, DPhysicsBox> inputDPhysBoxDict, Dictionary<int, DPhysicsCircle> inputDPhysCircleDict)
+        public Tuple<List<HitboxLineGroup>, List<HitboxLineGroup>, List<HitboxConsoleRow>> calculateHitBoxShapeComponentLines(Dictionary<int, DPhysicsBox> inputDPhysBoxDict, Dictionary<int, DPhysicsCircle> inputDPhysCircleDict)
         {
             // rects
             var newHitboxLineGroups_NoDistortion = new List<HitboxLineGroup> ();
             // circles
             var newHitboxLineGroups_DistortionAllowed = new List<HitboxLineGroup>();
+            var hitboxConsoleRows = new List<HitboxConsoleRow>();
 
             // CALCULATE RECTS
             for (int i = 0; i < inputDPhysBoxDict.Values.ToList().Count; i++)
@@ -313,6 +345,13 @@ namespace HitBoxVisualizerPlugin
                     boxPointCenter = boxOfCurrBox.center;
                     boxScale = (Fix)1;
                 }
+
+                var boxCenter = boxScale * boxPointCenter;
+                hitboxConsoleRows.Add(new HitboxConsoleRow(
+                    currBox.GetInstanceID(),
+                    getObjectTypeName(currBox.gameObject),
+                    Mathf.RoundToInt((float)boxCenter.x),
+                    Mathf.RoundToInt((float)boxCenter.y)));
 
                 // to make it approximately 500,000x more readable, there's some extra spacing so everything lines up nicely
                 Vec2 boxPointUpLeft    = boxScale * (boxPointCenter + boxPointUp - boxPointRight);
@@ -381,6 +420,12 @@ namespace HitBoxVisualizerPlugin
                     circleY      = physEngineCircleObj.Pos().y;
                 }
 
+                hitboxConsoleRows.Add(new HitboxConsoleRow(
+                    currCircle.GetInstanceID(),
+                    getObjectTypeName(currCircle.gameObject),
+                    Mathf.RoundToInt((float)circleX),
+                    Mathf.RoundToInt((float)circleY)));
+
                 circleRadius -= (Fix)drawingThickness / (Fix)2;
 
                 int circleLineAmount = circleDrawingMinAmountOfLines + (int)(circleRadius * (Fix)4);
@@ -408,7 +453,84 @@ namespace HitBoxVisualizerPlugin
                 newHitboxLineGroups_DistortionAllowed.Add(new HitboxLineGroup(currCircleLines, HitboxLineGroup.pickLineStyling(currCircle), currCircle.gameObject));
             }
 
-            return Tuple.Create(newHitboxLineGroups_NoDistortion, newHitboxLineGroups_DistortionAllowed);
+            return Tuple.Create(newHitboxLineGroups_NoDistortion, newHitboxLineGroups_DistortionAllowed, hitboxConsoleRows);
+        }
+
+        public string getObjectTypeName(GameObject parentGameObj)
+        {
+            if (parentGameObj == null)
+            {
+                return "Unknown";
+            }
+
+            Component[] components = parentGameObj.GetComponents<Component>();
+            for (int i = 0; i < components.Length; i++)
+            {
+                var component = components[i];
+                if (component == null)
+                {
+                    continue;
+                }
+                var componentTypeName = component.GetType().Name;
+                if (componentTypeName.IndexOf("Platform", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return "Platform";
+                }
+            }
+
+            var cleanName = parentGameObj.name.Replace("(Clone)", "").Trim();
+            if (cleanName.Length == 0)
+            {
+                return "Unknown";
+            }
+            return cleanName;
+        }
+
+        public void LogHitboxRowsToConsole(List<HitboxConsoleRow> rows)
+        {
+            HashSet<int> activeRows = [];
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var row = rows[i];
+                activeRows.Add(row.instanceId);
+                var rowText = row.ToString();
+                if (lastPrintedRowsByInstanceId.TryGetValue(row.instanceId, out var lastPrintedRow) && lastPrintedRow == rowText)
+                {
+                    continue;
+                }
+                lastPrintedRowsByInstanceId[row.instanceId] = rowText;
+                Logger.LogInfo(rowText);
+            }
+
+            var knownIds = lastPrintedRowsByInstanceId.Keys.ToList();
+            for (int i = 0; i < knownIds.Count; i++)
+            {
+                if (!activeRows.Contains(knownIds[i]))
+                {
+                    lastPrintedRowsByInstanceId.Remove(knownIds[i]);
+                }
+            }
+        }
+
+        public struct HitboxConsoleRow
+        {
+            public int instanceId;
+            public string objectType;
+            public int x;
+            public int y;
+
+            public HitboxConsoleRow(int instanceId_, string objectType_, int x_, int y_)
+            {
+                instanceId = instanceId_;
+                objectType = objectType_;
+                x = x_;
+                y = y_;
+            }
+
+            public override string ToString()
+            {
+                return $"{objectType}, {x}, {y}";
+            }
         }
     }
 

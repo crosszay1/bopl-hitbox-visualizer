@@ -6,6 +6,7 @@ A mod for bopl battle which draws lines around hitboxes. made by Jo912345.
 - Circular hitboxes are and always were drawn accurately, no matter the line thickness.
 - Shapes that are multi-colored are internally marked as active, and black and white if internally marked as disabled. (assuming a default color config).
 - As of version 3.0.0, line colors can be modified in the config file.
+- You can enable `Output Settings > consoleOutputMode` in the config to print active hitboxes as `ObjectType, x, y` in the BepInEx console/log instead of drawing them. Use `consoleOutputIntervalSeconds` to control print rate.
 
 # Credits
 - Programming:
