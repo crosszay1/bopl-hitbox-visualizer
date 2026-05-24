@@ -1,6 +1,20 @@
 # bopl battle hitbox visualizer
 A mod for bopl battle which draws lines around hitboxes. made by Jo912345.
 
+# Build
+From the repository root:
+
+```bash
+dotnet build HitBoxVisualizerPlugin.sln
+```
+
+# Test
+From the repository root:
+
+```bash
+dotnet test HitBoxVisualizerPlugin.sln
+```
+
 # Notes
 - As of version 3.0.0, rectangular hitboxes are now always drawn 100% accurately. In old versions the drawn hitbox edge extended half of the line thickness past the real hitbox edge, and the corners didn't quite connect.
 - Circular hitboxes are and always were drawn accurately, no matter the line thickness.
