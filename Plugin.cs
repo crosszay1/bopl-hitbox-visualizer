@@ -49,6 +49,8 @@ namespace HitBoxVisualizerPlugin
         public static float consoleOutputIntervalSeconds = 0.25f;
         public float consoleOutputElapsedSeconds = 0f;
         public Dictionary<int, string> lastPrintedRowsByInstanceId = [];
+        public HashSet<int> activeRowsThisCycle = [];
+        public List<int> staleRowInstanceIds = [];
 
         public new static ManualLogSource Logger;
 
@@ -488,11 +490,11 @@ namespace HitBoxVisualizerPlugin
 
         public void LogHitboxRowsToConsole(List<HitboxConsoleRow> rows)
         {
-            HashSet<int> activeRows = [];
+            activeRowsThisCycle.Clear();
             for (int i = 0; i < rows.Count; i++)
             {
                 var row = rows[i];
-                activeRows.Add(row.instanceId);
+                activeRowsThisCycle.Add(row.instanceId);
                 var rowText = row.ToString();
                 if (lastPrintedRowsByInstanceId.TryGetValue(row.instanceId, out var lastPrintedRow) && lastPrintedRow == rowText)
                 {
@@ -502,13 +504,17 @@ namespace HitBoxVisualizerPlugin
                 Logger.LogInfo(rowText);
             }
 
-            var knownIds = lastPrintedRowsByInstanceId.Keys.ToList();
-            for (int i = 0; i < knownIds.Count; i++)
+            staleRowInstanceIds.Clear();
+            foreach (var knownId in lastPrintedRowsByInstanceId.Keys)
             {
-                if (!activeRows.Contains(knownIds[i]))
+                if (!activeRowsThisCycle.Contains(knownId))
                 {
-                    lastPrintedRowsByInstanceId.Remove(knownIds[i]);
+                    staleRowInstanceIds.Add(knownId);
                 }
+            }
+            for (int i = 0; i < staleRowInstanceIds.Count; i++)
+            {
+                lastPrintedRowsByInstanceId.Remove(staleRowInstanceIds[i]);
             }
         }
 
